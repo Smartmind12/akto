@@ -14,6 +14,7 @@
                 <v-btn icon v-bind="attrs" @click="snackbar.show = false">
                     <v-icon>$fas_times</v-icon>
                 </v-btn>
+                <v-btn text :to="{ name: 'TestResults' }">View Results</v-btn>
             </template>
         </v-snackbar>
     </v-app>
@@ -32,6 +33,14 @@
             }
         },
         methods : {
+          startTest() {
+              this.snackbar.text = 'Test started';
+              this.snackbar.show = true;
+          },
+          viewTestResults() {
+              this.snackbar.text = 'Test completed';
+              this.snackbar.show = true;
+          },
           isPublicRoute() {
             var route = this.$route.fullPath
             return route === '/' || route === '/login' || route === '/signup'
