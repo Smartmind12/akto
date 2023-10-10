@@ -56,9 +56,11 @@ import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
 import com.mongodb.ConnectionString;
 import com.mongodb.bulk.BulkWriteResult;
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.model.*;
+import com.mongodb.client.result.UpdateResult;
 import com.slack.api.Slack;
 import com.slack.api.webhook.WebhookResponse;
 import org.apache.commons.io.FileUtils;
@@ -69,7 +71,9 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.HttpClients;
+import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -87,6 +91,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -246,7 +251,7 @@ public class InitializerListener implements ServletContextListener {
                         Filters.and(
                                 Filters.eq("_id.method", ssdId.getMethod()),
                                 Filters.eq("_id.url", ssdId.getUrl()),
-                                Filters.eq("_id.apiCollectionId", ssdId.getApiCollectionId())
+                                Filters.in(SingleTypeInfo._COLLECTION_IDS, Arrays.asList(ssdId.getApiCollectionId()))
                         );
 
 
@@ -281,7 +286,7 @@ public class InitializerListener implements ServletContextListener {
             filters.add(Filters.eq("responseCode", paramId.getResponseCode()));
             filters.add(Filters.eq("isHeader", paramId.getIsHeader()));
             filters.add(Filters.eq("param", paramId.getParam()));
-            filters.add(Filters.eq("apiCollectionId", paramId.getApiCollectionId()));
+            filters.add(Filters.in(SingleTypeInfo._COLLECTION_IDS, Arrays.asList(paramId.getApiCollectionId())));
 
             bulkSensitiveInvalidateUpdates.add(new UpdateOneModel<>(Filters.and(filters), Updates.set("invalid", true)));
         }
@@ -309,7 +314,7 @@ public class InitializerListener implements ServletContextListener {
             filters.add(Filters.eq("responseCode", paramId.getResponseCode()));
             filters.add(Filters.eq("isHeader", paramId.getIsHeader()));
             filters.add(Filters.eq("param", paramId.getParam()));
-            filters.add(Filters.eq("apiCollectionId", paramId.getApiCollectionId()));
+            filters.add(Filters.in(SingleTypeInfo._COLLECTION_IDS, Arrays.asList(paramId.getApiCollectionId())));
 
             bulkUpdatesForSingleTypeInfo.add(new DeleteOneModel<>(Filters.and(filters)));
         }
@@ -1024,22 +1029,59 @@ public class InitializerListener implements ServletContextListener {
         }
     }
 
+    // public static void main(String[] args) {
+    //     DaoInit.init(new ConnectionString("mongodb://localhost:27017"));
+    //     Context.accountId.set(1_000_000);
+    //     BackwardCompatibility backwardCompatibility = new BackwardCompatibility();
+    //     InitializerListener.useCollectionIdArray(backwardCompatibility);
+    // }
+
     public static void useCollectionIdArray(BackwardCompatibility backwardCompatibility) {
         if (backwardCompatibility.getUseCollectionIdArray() == 0) {
 
             List<String> matchKey = Arrays.asList("$" + SingleTypeInfo._API_COLLECTION_ID);
             List<String> matchKeyWithId = Arrays.asList("$" + Constants.ID + "." + SingleTypeInfo._API_COLLECTION_ID);
 
-            MongoCollection<?>[] collectionsWithKey = new MongoCollection[] {
-                    SingleTypeInfoDao.instance.getMCollection(),
-                    APISpecDao.instance.getMCollection(),
-                    SensitiveParamInfoDao.instance.getMCollection()
+            MCollection<?>[] collectionsWithKey = new MCollection[] {
+                    SingleTypeInfoDao.instance,
+                    APISpecDao.instance,
+                    SensitiveParamInfoDao.instance
             };
 
-            for (MongoCollection<?> collection : collectionsWithKey) {
-                collection.updateMany(new BasicDBObject(),
+            int LIMIT = 50_000;
+
+            for (MCollection<?> collection : collectionsWithKey) {
+                boolean doUpdate = true;
+                int c = 0;
+                int time = Context.now();
+                while(doUpdate){
+
+                    List<Bson> pipeline = new ArrayList<>();
+                    pipeline.add(Aggregates.match(Filters.exists(SingleTypeInfo._COLLECTION_IDS, false)));
+                    pipeline.add(Aggregates.limit(LIMIT));
+
+                    MongoCursor<BasicDBObject> cursor = collection.getMCollection()
+                            .aggregate(pipeline, BasicDBObject.class).cursor();
+
+                    ArrayList<ObjectId> ret = new ArrayList<ObjectId>();
+
+                    while (cursor.hasNext()) {
+                        BasicDBObject elem = cursor.next();
+                        ret.add((ObjectId) elem.get(Constants.ID));
+                    }
+
+                    UpdateResult res = collection.getMCollection().updateMany(
+                        Filters.in(Constants.ID, ret),
                         Arrays.asList(
-                                Updates.set(SingleTypeInfo._COLLECTION_IDS, matchKey)));
+                            Updates.set(SingleTypeInfo._COLLECTION_IDS, matchKey)));
+
+                    if(res.getMatchedCount() == 0){
+                        doUpdate = false;
+                    }
+                    logger.info("updated "+ Math.min(c + LIMIT, res.getModifiedCount()) );
+                    c+=LIMIT;
+                }
+                logger.info("Total time taken : " + (Context.now()-time));
             }
 
             MongoCollection<?>[] collectionsWithKeyID = new MongoCollection[] {
@@ -1061,6 +1103,25 @@ public class InitializerListener implements ServletContextListener {
             Filters.eq(Constants.ID, backwardCompatibility.getId()),
             Updates.set(BackwardCompatibility.USE_COLLECTION_ID_ARRAY, Context.now())
             );
+        }
+    }
+
+    public static void deleteDeprecatedIndices(BackwardCompatibility backwardCompatibility) {
+        if (backwardCompatibility.getDeleteDeprecatedIndices() == 0) {
+
+            try {
+                SingleTypeInfoDao.instance.getMCollection().dropIndexes();
+                ApiInfoDao.instance.getMCollection().dropIndexes();
+                SampleDataDao.instance.getMCollection().dropIndexes();
+                SensitiveSampleDataDao.instance.getMCollection().dropIndexes();
+                loggerMaker.infoAndAddToDb("Indices dropped", LogDb.DASHBOARD);
+            } catch (Exception e) {
+                // Errors out on non-existent indices and collections.
+            }
+
+            BackwardCompatibilityDao.instance.updateOne(
+                    Filters.eq(Constants.ID, backwardCompatibility.getId()),
+                    Updates.set(BackwardCompatibility.DELETE_DEPRECATED_INDICES, Context.now()));
         }
     }
 
@@ -1197,6 +1258,12 @@ public class InitializerListener implements ServletContextListener {
     }
 
     public void runInitializerFunctions() {
+        BackwardCompatibility backwardCompatibility = BackwardCompatibilityDao.instance.findOne(new BasicDBObject());
+        if (backwardCompatibility == null) {
+            backwardCompatibility = new BackwardCompatibility();
+            BackwardCompatibilityDao.instance.insertOne(backwardCompatibility);
+        }
+        deleteDeprecatedIndices(backwardCompatibility);
         SingleTypeInfoDao.instance.createIndicesIfAbsent();
         TrafficMetricsDao.instance.createIndicesIfAbsent();
         TestRolesDao.instance.createIndicesIfAbsent();
@@ -1208,11 +1275,6 @@ public class InitializerListener implements ServletContextListener {
         LoadersDao.instance.createIndicesIfAbsent();
         TestingRunResultDao.instance.createIndicesIfAbsent();
         TestingRunResultSummariesDao.instance.createIndicesIfAbsent();
-        BackwardCompatibility backwardCompatibility = BackwardCompatibilityDao.instance.findOne(new BasicDBObject());
-        if (backwardCompatibility == null) {
-            backwardCompatibility = new BackwardCompatibility();
-            BackwardCompatibilityDao.instance.insertOne(backwardCompatibility);
-        }
 
         // backward compatibility
         try {

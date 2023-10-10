@@ -3,10 +3,12 @@ package com.akto.dao;
 import com.akto.dao.context.Context;
 import com.akto.dto.SensitiveSampleData;
 import com.akto.dto.type.SingleTypeInfo;
-import com.mongodb.client.MongoCursor;
+import com.mongodb.client.model.CreateCollectionOptions;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
-import org.bson.Document;
+
+import java.util.Arrays;
 import org.bson.conversions.Bson;
 
 public class SensitiveSampleDataDao extends AccountsContextDao<SensitiveSampleData>{
@@ -30,33 +32,17 @@ public class SensitiveSampleDataDao extends AccountsContextDao<SensitiveSampleDa
                 Filters.eq("_id.isHeader", singleTypeInfo.getIsHeader()),
                 Filters.eq("_id.param", singleTypeInfo.getParam()),
                 Filters.eq("_id.subType", singleTypeInfo.getSubType().getName()),
-                Filters.eq("_id.apiCollectionId", singleTypeInfo.getApiCollectionId())
+                Filters.in(SingleTypeInfo._COLLECTION_IDS, Arrays.asList(singleTypeInfo.getApiCollectionId()))
         );
     }
 
     public void createIndicesIfAbsent() {
-        boolean exists = false;
-        for (String col: clients[0].getDatabase(Context.accountId.get()+"").listCollectionNames()){
-            if (getCollName().equalsIgnoreCase(col)){
-                exists = true;
-                break;
-            }
-        };
 
-        if (!exists) {
-            clients[0].getDatabase(Context.accountId.get()+"").createCollection(getCollName());
-        }
+        String dbName = Context.accountId.get()+"";
+        createCollectionIfAbsent(dbName, getCollName(), new CreateCollectionOptions());
 
-        MongoCursor<Document> cursor = instance.getMCollection().listIndexes().cursor();
-        int counter = 0;
-        while (cursor.hasNext()) {
-            counter++;
-            cursor.next();
-        }
-
-        if (counter == 1) {
-            String[] fieldNames = {"_id.url", "_id.apiCollectionId", "_id.method"};
-            instance.getMCollection().createIndex(Indexes.ascending(fieldNames));
-        }
+        String[] keys = new String[]{"_id.url", SingleTypeInfo._COLLECTION_IDS, "_id.method"};
+        Bson index = Indexes.ascending(keys);
+        createIndexIfAbsent(dbName, getCollName(), index, new IndexOptions().name(createName(keys, 1)));
     }
 }

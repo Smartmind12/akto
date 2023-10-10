@@ -44,11 +44,14 @@ public class BackwardCompatibility {
     public static final String USE_COLLECTION_ID_ARRAY = "useCollectionIdArray";
     private int useCollectionIdArray;
 
+    public static final String DELETE_DEPRECATED_INDICES = "deleteDeprecatedIndices";
+    private int deleteDeprecatedIndices;
+
     public BackwardCompatibility(int id, int dropFilterSampleData, int resetSingleTypeInfoCount, int dropWorkflowTestResult,
                                  int readyForNewTestingFramework,int addAktoDataTypes, boolean deploymentStatusUpdated,
                                  int authMechanismData, boolean mirroringLambdaTriggered, int deleteAccessListFromApiToken,
                                  int deleteNullSubCategoryIssues, int enableNewMerging, int loadTemplateFilesFromDirectory,
-                                 int useCollectionIdArray) {
+                                 int useCollectionIdArray, int deleteDeprecatedIndices) {
         this.id = id;
         this.dropFilterSampleData = dropFilterSampleData;
         this.resetSingleTypeInfoCount = resetSingleTypeInfoCount;
@@ -63,6 +66,7 @@ public class BackwardCompatibility {
         this.enableNewMerging = enableNewMerging;
         this.loadTemplateFilesFromDirectory = loadTemplateFilesFromDirectory;
         this.useCollectionIdArray = useCollectionIdArray;
+        this.deleteDeprecatedIndices = deleteDeprecatedIndices;
     }
 
     public BackwardCompatibility() {
@@ -186,5 +190,13 @@ public class BackwardCompatibility {
 
     public void setUseCollectionIdArray(int useCollectionIdArray) {
         this.useCollectionIdArray = useCollectionIdArray;
+    }
+
+    public int getDeleteDeprecatedIndices() {
+        return deleteDeprecatedIndices;
+    }
+
+    public void setDeleteDeprecatedIndices(int deleteDeprecatedIndices) {
+        this.deleteDeprecatedIndices = deleteDeprecatedIndices;
     }
 }

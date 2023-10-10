@@ -2,13 +2,16 @@ package com.akto.dao;
 
 import com.akto.dao.context.Context;
 import com.akto.dto.ApiInfo;
-import com.mongodb.client.MongoCursor;
+import com.akto.dto.type.SingleTypeInfo;
+import com.mongodb.client.model.CreateCollectionOptions;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 
-import org.bson.Document;
 import org.bson.conversions.Bson;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class ApiInfoDao extends AccountsContextDao<ApiInfo>{
@@ -17,41 +20,18 @@ public class ApiInfoDao extends AccountsContextDao<ApiInfo>{
 
     public void createIndicesIfAbsent() {
 
-        boolean exists = false;
-        for (String col: clients[0].getDatabase(Context.accountId.get()+"").listCollectionNames()){
-            if (getCollName().equalsIgnoreCase(col)){
-                exists = true;
-                break;
-            }
-        };
+        String dbName = Context.accountId.get()+"";
+        createCollectionIfAbsent(dbName, getCollName(), new CreateCollectionOptions());
 
-        if (!exists) {
-            clients[0].getDatabase(Context.accountId.get()+"").createCollection(getCollName());
-        }
-        
-        MongoCursor<Document> cursor = instance.getMCollection().listIndexes().cursor();
-        int counter = 0;
-        while (cursor.hasNext()) {
-            counter++;
-            cursor.next();
-        }
+        List<String[]> ascIndices = Arrays.asList(
+                new String[]{SingleTypeInfo._COLLECTION_IDS},
+                new String[]{"_id.url"},
+                new String[]{SingleTypeInfo._COLLECTION_IDS, "_id.url"}
+        );
 
-        if (counter == 1) {
-            String[] fieldNames = {"_id.apiCollectionId"};
-            ApiInfoDao.instance.getMCollection().createIndex(Indexes.ascending(fieldNames));    
-            counter++;
-        }
-
-        if (counter == 2) {
-            String[] fieldNames = {"_id.url"};
-            ApiInfoDao.instance.getMCollection().createIndex(Indexes.ascending(fieldNames));    
-            counter++;
-        }
-
-        if (counter == 3) {
-            String[] fieldNames = {"_id.apiCollectionId", "_id.url"};
-            ApiInfoDao.instance.getMCollection().createIndex(Indexes.ascending(fieldNames));    
-            counter++;
+        for(String [] keys: ascIndices) {
+            Bson index = Indexes.ascending(keys);
+            createIndexIfAbsent(dbName, getCollName(), index, new IndexOptions().name(createName(keys, 1)));
         }
     }
 
@@ -73,7 +53,7 @@ public class ApiInfoDao extends AccountsContextDao<ApiInfo>{
         return Filters.and(
                 Filters.eq("_id.url", url),
                 Filters.eq("_id.method", method),
-                Filters.eq("_id.apiCollectionId", apiCollectionId)
+                Filters.in(SingleTypeInfo._COLLECTION_IDS, Arrays.asList(apiCollectionId))
         );
     }
 

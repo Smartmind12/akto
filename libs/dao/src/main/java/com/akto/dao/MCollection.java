@@ -191,7 +191,31 @@ public abstract class MCollection<T> {
         return logger;
     }
 
-    public static boolean createCollectionIfAbsent(String dbName, String collName, CreateCollectionOptions options){
+    public void dropIndexes(List<Bson> indexes){
+        try {
+            for(Bson index: indexes) {
+                getMCollection().dropIndex(index);
+            }
+        } catch (Exception e) {
+            // error outs on non-existent indices
+            e.printStackTrace();
+        }
+    }
+
+    public static String createName(String[] arr, int order) {
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (String s : arr) {
+            if(!first){
+                sb.append("_");
+            }
+            sb.append(s + "_" + order);
+            first = false;
+        }
+        return sb.toString();
+    }
+
+    public static boolean createCollectionIfAbsent(String dbName, String collName, CreateCollectionOptions options) {
         try{
             boolean exists = false;
             MongoDatabase db = clients[0].getDatabase(dbName);
